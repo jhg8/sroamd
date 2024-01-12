@@ -8,3 +8,4 @@ int netlink_disassociate(int ifindex, const unsigned char *mac,
                          const unsigned char *mymac);
 int netlink_route(int ifindex, int add, int ipv6,
                   const unsigned char *dst, int dlen);
+int nl_get_mac(int ifindex, unsigned char * dst, unsigned char * mac);

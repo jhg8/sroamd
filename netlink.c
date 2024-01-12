@@ -9,6 +9,7 @@
 #include <netlink/msg.h>
 #include <netlink/attr.h>
 #include <netlink/route/addr.h>
+#include <netlink/route/neighbour.h>
 #include <netlink/route/route.h>
 #include <netlink/errno.h>
 
@@ -69,6 +70,51 @@ static int family_handler(struct nl_msg *msg, void *arg)
     }
 
     return NL_SKIP;
+}
+
+struct nl_sock *rtnl_sock = NULL;
+
+int nl_get_mac(int ifindex, unsigned char * dst, unsigned char * mac)
+{
+    struct nl_cache * cache = NULL;
+    struct rtnl_neigh * neigh = NULL;
+    struct nl_addr *dst_addr = NULL;
+    struct nl_addr *mac_addr = NULL;
+    int rc;
+
+    if(rtnl_sock == NULL) {
+        rtnl_sock = nl_socket_alloc();
+        if(rtnl_sock == NULL)
+            return -NLE_NOMEM;
+
+        rc = nl_connect(rtnl_sock, NETLINK_ROUTE);
+        if(rc < 0) {
+            nl_socket_free(rtnl_sock);
+            rtnl_sock = NULL;
+            return rc;
+        }
+    }
+
+    rc = rtnl_neigh_alloc_cache(rtnl_sock, &cache);
+    if(rc)
+        return rc;
+
+    dst_addr = nl_addr_build(AF_INET6, dst, 16);
+
+    neigh = rtnl_neigh_get(cache, ifindex, dst_addr);
+    if(neigh == NULL) {
+        nl_cache_free(cache);
+        return 1;
+    }
+    mac_addr = rtnl_neigh_get_lladdr(neigh);
+    if(mac_addr == NULL) {
+        nl_cache_free(cache);
+        return 1;
+    }
+    memcpy(mac, nl_addr_get_binary_addr(mac_addr), 6);
+    rtnl_neigh_put(neigh);
+    nl_cache_free(cache);
+    return 0;
 }
 
 int nl_get_multicast_id(struct nl_sock *sock,
@@ -281,7 +327,6 @@ netlink_disassociate(int ifindex, const unsigned char *mac,
     return -1;
 }
 
-struct nl_sock *rtnl_sock = NULL;
 
 int
 netlink_route(int ifindex, int add, int ipv6, const unsigned char *dst, int dlen)

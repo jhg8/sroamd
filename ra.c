@@ -13,6 +13,7 @@
 #include "flood.h"
 #include "util.h"
 #include "ra.h"
+#include "netlink.h"
 
 unsigned char dnsv6[16][16];
 int numdnsv6 = 0;
@@ -163,6 +164,7 @@ receive_rs()
     int buflen = 1500, rc;
     unsigned char buf[buflen];
     unsigned char *mac;
+    unsigned char mac_cache[6];
     struct sockaddr_in6 from;
     struct interface *interface;
     struct iovec iov[1];
@@ -231,7 +233,14 @@ receive_rs()
     }
     if(mac == NULL) {
         debugf("No source address option in router solicitation.\n");
-        return -1;
+        rc = nl_get_mac(interface->ifindex, from.sin6_addr.s6_addr, mac_cache);
+        if(rc < 0)
+            return rc;
+        if (rc) {
+            send_ns(interface, from.sin6_addr.s6_addr);
+            return -1;
+        }
+        mac = mac_cache;
     }
 
     debugf("<- RS %s\n", interface->ifname);
@@ -300,6 +309,37 @@ send_gratuitous_na(struct interface *interface)
     return sendto(ra_socket, buf, i, 0, (struct sockaddr*)&to, sizeof(to));
 }
 
+int
+send_ns(struct interface *interface, unsigned char * ipv6)
+{
+    int buflen = 1024;
+    unsigned char buf[buflen];
+    struct sockaddr_in6 to;
+    int i = 0;
+
+    memset(&to, 0, sizeof(to));
+    to.sin6_family = AF_INET6;
+    memcpy(&to.sin6_addr, all_nodes, 16);
+    to.sin6_scope_id = interface->ifindex;
+
+    CHECK(24);
+    BYTE(135);
+    BYTE(0);
+    SHORT(0);
+    LONG(0);
+    BYTES(ipv6, 16);
+
+    if(memcmp(interface->mac, zeroes, 6) != 0) {
+        CHECK(8);
+        BYTE(1);
+        BYTE(1);
+        BYTES(interface->mac, 6);
+    }
+
+ sendit:
+    debugf("-> Neighbour Solicitation\n");
+    return sendto(ra_socket, buf, i, 0, (struct sockaddr*)&to, sizeof(to));
+}
 
 int
 ra_setup()
